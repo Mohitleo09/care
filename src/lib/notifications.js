@@ -1,6 +1,8 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import nodemailer from "nodemailer";
+import { Twilio } from "twilio";
 
 /**
  * PRODUCTION-GRADE EVENT ARCHITECTURE
@@ -162,14 +164,53 @@ export async function dispatchNotification({ workspaceId, type, recipient, paylo
 
         const config = channel.config;
 
-        // SIMULATED PRODUCTION DISPATCH
         if (type === "EMAIL") {
-            console.log(`[NODE-MAILER] Dispatched to ${recipient} via ${config.host}`);
+            const transporter = nodemailer.createTransport({
+                host: config.host,
+                port: parseInt(config.port) || 587,
+                secure: config.secure === true || config.secure === "true",
+                auth: {
+                    user: config.user,
+                    pass: config.pass,
+                },
+                tls: {
+                    rejectUnauthorized: false
+                }
+            });
+
+            await transporter.sendMail({
+                from: `"${config.fromName || 'CareOps Assistant'}" <${config.user}>`,
+                to: recipient,
+                subject: payload.subject || "CareOps Notification",
+                text: payload.message,
+                html: payload.html || `
+                    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 40px; border: 1px solid #e2e8f0; border-radius: 16px;">
+                        <h2 style="color: #0f172a; margin-bottom: 24px;">Message from CareOps</h2>
+                        <p style="color: #334155; line-height: 1.6; font-size: 16px;">${payload.message}</p>
+                        <div style="margin-top: 40px; padding-top: 24px; border-top: 1px solid #f1f5f9; color: #94a3b8; font-size: 12px;">
+                            This is an automated notification from your CareOps workspace.
+                        </div>
+                    </div>
+                `
+            });
+
+            console.log(`[SYS-NOTIFY] EMAIL sent to ${recipient}`);
             return { sent: true };
         }
 
         if (type === "SMS") {
-            console.log(`[TWILIO-SMS] Dispatched to ${recipient} via sender ${config.from}`);
+            if (!config.sid || !config.token || !config.from) {
+                return { sent: false, reason: "Twilio credentials incomplete" };
+            }
+
+            const client = new Twilio(config.sid, config.token);
+            await client.messages.create({
+                body: payload.message,
+                from: config.from,
+                to: recipient
+            });
+
+            console.log(`[SYS-NOTIFY] SMS sent to ${recipient}`);
             return { sent: true };
         }
 
