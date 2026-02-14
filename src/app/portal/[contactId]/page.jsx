@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { getContactForms } from "../portal-actions";
 import PortalClient from "./portal-client";
 
