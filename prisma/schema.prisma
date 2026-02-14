@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Workspace {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  address         String?
+  timezone        String   @default("UTC")
+  contactEmail    String
+  isActive        Boolean  @default(false)
+  onboardingStep  Int      @default(1)
+  createdAt       DateTime @default(now())
+  
+  users           User[]
+  channels        CommunicationChannel[]
+  contactForms    ContactForm[]
+  serviceTypes    ServiceType[]
+  inventory       InventoryItem[]
+  contacts        Contact[]
+  conversations   Conversation[]
+  notifications   InternalNotification[]
+  auditLogs       AuditLog[]
+  formTemplates   FormTemplate[]
+  scheduledJobs   ScheduledJob[]
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String?
+  password          String?
+  role              UserRole  @default(STAFF)
+  setupToken        String?   @unique
+  setupTokenExpires DateTime?
+  workspaceId       String
+  workspace         Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+}
+
+enum UserRole {
+  OWNER
+  STAFF
+}
+
+model CommunicationChannel {
+  id          String    @id @default(cuid())
+  type        String
+  provider    String
+  config      Json
+  isActive    Boolean   @default(true)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+model ContactForm {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique 
+  settings    Json      
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+model ServiceType {
+  id           String    @id @default(cuid())
+  name         String
+  slug         String    @unique
+  description  String?
+  duration     Int       
+  price        Decimal?  @default(0)
+  bufferTime   Int       @default(0)
+  locationType String    @default("ONLINE") // ONLINE, IN_PERSON
+  location     String?
+  isActive     Boolean   @default(true)
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id])
+  
+  availability ServiceAvailability[]
+  resources    ServiceResource[]
+  bookings     Booking[]
+  formLinks    BookingTypeForm[]
+}
+
+model ServiceAvailability {
+  id            String      @id @default(cuid())
+  dayOfWeek     String      // Monday, Tuesday, etc.
+  startTime     String      // HH:mm
+  endTime       String      // HH:mm
+  serviceTypeId String
+  serviceType   ServiceType @relation(fields: [serviceTypeId], references: [id])
+}
+
+model ServiceResource {
+  id              String      @id @default(cuid())
+  quantity        Int         @default(1)
+  serviceTypeId   String
+  serviceType     ServiceType @relation(fields: [serviceTypeId], references: [id])
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+}
+// 1. Form Templates (Blueprints)
+model FormTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  fields      Json     // Array of field definitions {type, label, required, etc.}
+  createdAt   DateTime @default(now())
+  
+  serviceLinks BookingTypeForm[]
+  instances    FormInstance[]
+}
+
+// 2. Link Forms to Services (Config)
+model BookingTypeForm {
+  id              String       @id @default(cuid())
+  isRequired      Boolean      @default(true)
+  serviceTypeId   String
+  serviceType     ServiceType  @relation(fields: [serviceTypeId], references: [id])
+  formTemplateId  String
+  formTemplate    FormTemplate @relation(fields: [formTemplateId], references: [id])
+
+  @@unique([serviceTypeId, formTemplateId])
+}
+
+// 3. Unique Instance per Booking (Critically separates template from instance)
+model FormInstance {
+  id             String        @id @default(cuid())
+  status         String        @default("PENDING") // PENDING, COMPLETED, OVERDUE
+  token          String        @unique @default(uuid())
+  accessToken    String?       @unique // Secure link token
+  dueDate        DateTime?
+  bookingId      String
+  booking        Booking       @relation(fields: [bookingId], references: [id])
+  formTemplateId String
+  formTemplate   FormTemplate  @relation(fields: [formTemplateId], references: [id])
+  
+  submission     FormSubmission?
+  createdAt      DateTime      @default(now())
+}
+
+// 4. Secure Submission Storage
+model FormSubmission {
+  id             String       @id @default(cuid())
+  submittedAt    DateTime     @default(now())
+  data           Json         // The actual answers
+  formInstanceId String       @unique
+  formInstance   FormInstance @relation(fields: [formInstanceId], references: [id])
+}
+
+model Contact {
+  id          String    @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  bookings    Booking[]
+  conversations Conversation[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  dateTime      DateTime
+  status        BookingStatus @default(PENDING)
+  contactId     String
+  contact       Contact       @relation(fields: [contactId], references: [id])
+  serviceTypeId String
+  serviceType   ServiceType   @relation(fields: [serviceTypeId], references: [id])
+  
+  forms         FormInstance[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @default(now()) @updatedAt
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  NOSHOW
+  CANCELLED
+}
+
+model InventoryItem {
+  id                 String            @id @default(cuid())
+  name               String
+  type               InventoryType     @default(CONSUMABLE) // CONSUMABLE or REUSABLE
+  totalQuantity      Int               // Maximum capacity
+  availableQuantity  Int               // Current available (decreases for consumables, reserved for reusables)
+  lowStockThreshold  Int               // Alert trigger point
+  workspaceId        String
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id])
+  createdAt          DateTime          @default(now())
+  
+  serviceRequirements ServiceResource[]
+}
+
+enum InventoryType {
+  CONSUMABLE  // Permanent deduction (e.g., hair product kit)
+  REUSABLE    // Time-based reservation (e.g., meeting room, dental chair)
+}
+
+model Conversation {
+  id              String    @id @default(cuid())
+  contactId       String
+  contact         Contact   @relation(fields: [contactId], references: [id])
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id])
+  messages        Message[]
+  status          String    @default("ACTIVE") // ACTIVE, CLOSED, ARCHIVED
+  staffReplied    Boolean   @default(false)    // Flag to pause automation
+  lastMessageAt   DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  content        String
+  sender         MessageSender
+  channel        MessageChannel
+  externalId     String?       // Message-ID for Email, SID for SMS
+  metadata       Json?         // Headers, provider data
+  createdAt      DateTime      @default(now())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+}
+
+enum MessageSender {
+  SYSTEM
+  STAFF
+  CUSTOMER
+}
+
+enum MessageChannel {
+  EMAIL
+  SMS
+  FORM
+}
+
+model InternalNotification {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  type        String
+  title       String
+  message     String
+  link        String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  userId      String?
+  action      String
+  entity      String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model ScheduledJob {
+  id          String   @id @default(cuid())
+  type        String   // e.g., REMINDER_24H
+  status      String   @default("PENDING") // PENDING, COMPLETED, FAILED, CANCELLED
+  executeAt   DateTime
+  payload     Json?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+}
