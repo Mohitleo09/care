@@ -1,222 +1,239 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { MessageSquare, Phone, Mail, User, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Calendar as CalendarIcon, Clock } from "lucide-react";
+import { useState, useTransition, useEffect } from "react";
+import { getAvailableSlots, submitBooking } from "@/app/booking-actions";
+import {
+    Clock,
+    MapPin,
+    Calendar as CalendarIcon,
+    User,
+    Mail,
+    Phone,
+    ArrowRight,
+    Loader2,
+    CheckCircle2,
+    AlertCircle,
+    ChevronRight,
+    ChevronLeft
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-export default function ServiceBookingForm({ service, workspace, getAvailableSlots, submitBooking }) {
-    const [step, setStep] = useState(1); // 1: Date/Time, 2: Details, 3: Success
+export default function BookingForm({ workspace, service }) {
+    const [step, setStep] = useState(1);
+    const [isPending, startTransition] = useTransition();
+    const [success, setSuccess] = useState(false);
+    const [error, setError] = useState("");
+
     const [selectedDate, setSelectedDate] = useState("");
-    const [selectedSlot, setSelectedSlot] = useState(null);
-    const [slots, setSlots] = useState([]);
-    const [loadingSlots, setLoadingSlots] = useState(false);
-    const [formData, setFormData] = useState({
-        name: "",
-        email: "",
-        phone: ""
-    });
-    const [bookingResult, setBookingResult] = useState(null);
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState(null);
+    const [availableSlots, setAvailableSlots] = useState([]);
+    const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
-    // Fetch slots when date changes
+    const [contact, setContact] = useState({ name: "", email: "", phone: "" });
+    const [selectedTime, setSelectedTime] = useState(null);
+
+    // Handle date selection to fetch slots
     useEffect(() => {
-        async function fetchSlots() {
-            if (!selectedDate) return;
-            setLoadingSlots(true);
-            setSlots([]);
-            setSelectedSlot(null);
-
-            try {
-                const available = await getAvailableSlots(service.id, selectedDate);
-                setSlots(available);
-            } catch (err) {
-                console.error("Failed to load slots", err);
-            } finally {
-                setLoadingSlots(false);
-            }
+        if (selectedDate && step === 1) {
+            fetchSlots(selectedDate);
         }
-        fetchSlots();
-    }, [selectedDate, service.id]);
+    }, [selectedDate, step]);
 
-    async function handleSubmit(e) {
-        e.preventDefault();
-        setSubmitting(true);
-        setError(null);
-
+    async function fetchSlots(date) {
+        setIsLoadingSlots(true);
         try {
-            const payload = new FormData();
-            payload.append("name", formData.name);
-            payload.append("email", formData.email);
-            payload.append("phone", formData.phone);
-            payload.append("serviceTypeId", service.id);
-            payload.append("workspaceId", workspace.id);
-            payload.append("dateTime", selectedSlot.toISOString());
-
-            const result = await submitBooking(payload);
-
-            if (result.success) {
-                setBookingResult(result);
-                setStep(3);
-            } else {
-                setError(result.error || "Booking failed. Please try again.");
-            }
+            const slots = await getAvailableSlots(service.id, date);
+            setAvailableSlots(slots);
         } catch (err) {
-            setError("An unexpected error occurred.");
+            console.error("Failed to fetch slots:", err);
+            setAvailableSlots([]);
         } finally {
-            setSubmitting(false);
+            setIsLoadingSlots(false);
         }
     }
 
-    if (step === 3 && bookingResult) {
+    const handleSubmit = async () => {
+        setError("");
+        startTransition(async () => {
+            try {
+                const data = new FormData();
+                data.append("name", contact.name);
+                data.append("email", contact.email);
+                data.append("phone", contact.phone);
+                data.append("serviceTypeId", service.id);
+                data.append("dateTime", selectedTime.toISOString());
+                data.append("workspaceId", workspace.id);
+
+                const res = await submitBooking(data);
+                if (res.error) {
+                    setError(res.error);
+                } else {
+                    setSuccess(true);
+                }
+            } catch (err) {
+                setError("An unexpected error occurred. Please try again.");
+            }
+        });
+    };
+
+    if (success) {
         return (
-            <div className="bg-white p-8 rounded-2xl border border-emerald-100 shadow-xl shadow-emerald-50 text-center space-y-6 animate-in fade-in zoom-in duration-300">
-                <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 className="text-emerald-500" size={32} />
+            <div className="bg-white border border-slate-100 rounded-[40px] p-12 text-center space-y-8 animate-in fade-in zoom-in duration-500">
+                <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-emerald-500/10">
+                    <CheckCircle2 size={40} strokeWidth={2.5} />
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Booking Confirmed!</h2>
-                <div className="space-y-2 text-slate-500 text-sm">
-                    <p>We have sent a confirmation to <strong>{formData.email}</strong>.</p>
-                    <p>Your appointment for <span className="font-bold text-slate-900">{service.name}</span> is scheduled for:</p>
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-4 font-mono text-xs text-slate-700 font-bold">
-                        {new Date(selectedSlot).toLocaleString()}
-                    </div>
+                <div className="space-y-3">
+                    <h2 className="text-3xl font-black text-slate-900 tracking-tight">Booking confirmed</h2>
+                    <p className="text-slate-500 font-medium leading-relaxed max-w-xs mx-auto">
+                        Your appointment has been reserved. Check your email for confirmation and required forms.
+                    </p>
                 </div>
-                <button
-                    onClick={() => window.location.href = '/'}
-                    className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-slate-800 transition-all shadow-lg"
-                >
-                    Return to Home
-                </button>
+                <div className="pt-4">
+                    <button
+                        onClick={() => window.location.href = `/workspace/${workspace.slug}/book`}
+                        className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-slate-900 transition-colors"
+                    >
+                        Return to Services
+                    </button>
+                </div>
             </div>
-        );
+        )
     }
 
     return (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            {/* Header Steps */}
-            <div className="flex border-b border-slate-100">
-                <div className={`flex-1 p-4 text-center border-b-2 ${step === 1 ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400'}`}>
-                    <span className="text-[10px] font-bold uppercase tracking-widest">1. Time</span>
-                </div>
-                <div className={`flex-1 p-4 text-center border-b-2 ${step === 2 ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400'}`}>
-                    <span className="text-[10px] font-bold uppercase tracking-widest">2. Details</span>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-10">
+            {/* LEFT: SUMMARY */}
+            <div className="md:col-span-4 space-y-6">
+                <div className="bg-slate-900 rounded-[32px] p-8 text-white space-y-8 sticky top-24">
+                    <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Service</p>
+                        <h3 className="text-2xl font-bold tracking-tight">{service.name}</h3>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                            <Clock size={16} className="text-slate-400" />
+                            <span className="text-sm font-bold">{service.duration} mins</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <MapPin size={16} className="text-slate-400" />
+                            <span className="text-sm font-bold">{service.location || 'In-person'}</span>
+                        </div>
+                    </div>
+
+                    {selectedTime && (
+                        <div className="pt-6 border-t border-white/10 space-y-1">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Scheduled For</p>
+                            <p className="text-sm font-bold">{new Date(selectedTime).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                            <p className="text-lg font-black">{new Date(selectedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="p-6 lg:p-8">
+            {/* RIGHT: STEPS */}
+            <div className="md:col-span-8 space-y-8">
+                {/* STEP 1: TIME SELECTION */}
                 {step === 1 && (
-                    <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
-                        <div className="space-y-4">
-                            <label className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                <CalendarIcon size={16} /> Select Date
-                            </label>
+                    <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
+                        <div className="space-y-6">
+                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Select Date</h4>
                             <input
                                 type="date"
-                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                className="w-full h-16 px-6 bg-slate-50 border border-slate-100 rounded-2xl text-lg font-bold focus:bg-white focus:border-slate-900 outline-none transition-all"
                                 value={selectedDate}
-                                onChange={(e) => setSelectedDate(e.target.value)}
-                                min={new Date().toISOString().split("T")[0]}
+                                onChange={e => setSelectedDate(e.target.value)}
+                                min={new Date().toISOString().split('T')[0]}
                             />
                         </div>
 
                         {selectedDate && (
-                            <div className="space-y-4">
-                                <label className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                    <Clock size={16} /> Available Slots
-                                </label>
-
-                                {loadingSlots ? (
-                                    <div className="flex justify-center py-8">
-                                        <Loader2 className="animate-spin text-slate-300" />
-                                    </div>
-                                ) : slots.length > 0 ? (
-                                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                                        {slots.map((slot, i) => (
-                                            <button
-                                                key={i}
-                                                onClick={() => setSelectedSlot(slot)}
-                                                className={`p-3 rounded-lg text-sm font-bold transition-all border ${selectedSlot === slot
-                                                    ? "bg-slate-900 text-white border-slate-900 shadow-md transform scale-105"
-                                                    : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                                                    }`}
-                                            >
-                                                {new Date(slot).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </button>
-                                        ))}
-                                    </div>
+                            <div className="space-y-6">
+                                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Available Times</h4>
+                                {isLoadingSlots ? (
+                                    <div className="py-12 flex justify-center"><Loader2 className="animate-spin text-slate-200" size={32} /></div>
                                 ) : (
-                                    <div className="p-6 bg-amber-50 rounded-xl border border-amber-100 text-amber-700 text-sm font-medium text-center">
-                                        No slots available for this date.
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                                        {availableSlots.map((slot, i) => {
+                                            const slotDate = new Date(slot);
+                                            const isSelected = selectedTime && slotDate.getTime() === selectedTime.getTime();
+                                            return (
+                                                <button
+                                                    key={i}
+                                                    onClick={() => setSelectedTime(slotDate)}
+                                                    className={cn(
+                                                        "h-14 rounded-xl border text-sm font-black transition-all",
+                                                        isSelected
+                                                            ? "bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-900/20"
+                                                            : "bg-white border-slate-100 text-slate-900 hover:border-slate-900"
+                                                    )}
+                                                >
+                                                    {slotDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
+                                )}
+                                {!isLoadingSlots && availableSlots.length === 0 && (
+                                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest text-center py-12">No availability for this date.</p>
                                 )}
                             </div>
                         )}
 
-                        <div className="pt-4 flex justify-end">
+                        <div className="pt-8">
                             <button
-                                disabled={!selectedSlot}
+                                disabled={!selectedTime}
                                 onClick={() => setStep(2)}
-                                className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                className="w-full h-16 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl shadow-slate-900/10 hover:-translate-y-1 transition-all flex items-center justify-center gap-3 disabled:opacity-30 disabled:hover:translate-y-0"
                             >
-                                Continue <ArrowRight size={14} />
+                                Continue to Details <ArrowRight size={18} />
                             </button>
                         </div>
                     </div>
                 )}
 
+                {/* STEP 2: PERSONAL INFO */}
                 {step === 2 && (
-                    <form onSubmit={handleSubmit} className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-start gap-3">
-                            <Clock className="text-blue-500 shrink-0 mt-0.5" size={16} />
-                            <div>
-                                <p className="text-xs font-bold text-blue-800 uppercase tracking-widest">Selected Time</p>
-                                <p className="text-sm font-bold text-blue-900 mt-1">
-                                    {new Date(selectedSlot).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}
-                                </p>
-                            </div>
-                        </div>
+                    <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
+                        <header className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Personal Details</h4>
+                            <button onClick={() => setStep(1)} className="text-[10px] font-bold text-slate-400 hover:text-slate-900 transition-colors uppercase tracking-widest">Change Time</button>
+                        </header>
 
-                        <div className="space-y-4">
-                            <div className="space-y-1">
-                                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Full Name</label>
+                        <div className="space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
                                 <div className="relative">
-                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                    <User className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                                     <input
-                                        required
-                                        type="text"
-                                        placeholder="Jane Doe"
-                                        className="w-full pl-10 pr-4 h-12 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-slate-900 outline-none transition-all"
-                                        value={formData.name}
-                                        onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                        className="w-full h-16 pl-14 pr-6 bg-slate-50 border border-slate-100 rounded-2xl text-base font-bold focus:bg-white focus:border-slate-900 outline-none transition-all"
+                                        placeholder="John Doe"
+                                        value={contact.name}
+                                        onChange={e => setContact({ ...contact, name: e.target.value })}
                                     />
                                 </div>
                             </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Email Address</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
                                     <div className="relative">
-                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                        <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                                         <input
-                                            required
-                                            type="email"
-                                            placeholder="jane@example.com"
-                                            className="w-full pl-10 pr-4 h-12 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-slate-900 outline-none transition-all"
-                                            value={formData.email}
-                                            onChange={e => setFormData({ ...formData, email: e.target.value })}
+                                            className="w-full h-16 pl-14 pr-6 bg-slate-50 border border-slate-100 rounded-2xl text-base font-bold focus:bg-white focus:border-slate-900 outline-none transition-all"
+                                            placeholder="john@example.com"
+                                            value={contact.email}
+                                            onChange={e => setContact({ ...contact, email: e.target.value })}
                                         />
                                     </div>
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Phone Number</label>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Phone Number</label>
                                     <div className="relative">
-                                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                        <Phone className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                                         <input
-                                            type="tel"
-                                            placeholder="(555) 123-4567"
-                                            className="w-full pl-10 pr-4 h-12 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-slate-900 outline-none transition-all"
-                                            value={formData.phone}
-                                            onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                                            className="w-full h-16 pl-14 pr-6 bg-slate-50 border border-slate-100 rounded-2xl text-base font-bold focus:bg-white focus:border-slate-900 outline-none transition-all"
+                                            placeholder="+1 (555) 000-0000"
+                                            value={contact.phone}
+                                            onChange={e => setContact({ ...contact, phone: e.target.value })}
                                         />
                                     </div>
                                 </div>
@@ -224,34 +241,28 @@ export default function ServiceBookingForm({ service, workspace, getAvailableSlo
                         </div>
 
                         {error && (
-                            <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-sm font-medium flex items-center gap-2">
-                                <AlertTriangle size={16} /> {error}
+                            <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-[10px] font-black rounded-2xl flex items-center gap-3">
+                                <AlertCircle size={14} className="shrink-0" /> {error}
                             </div>
                         )}
 
-                        <div className="pt-4 flex justify-between">
+                        <div className="pt-8">
                             <button
-                                type="button"
-                                onClick={() => setStep(1)}
-                                className="px-6 py-3 text-slate-500 font-bold uppercase tracking-widest text-xs hover:text-slate-900 transition-colors"
+                                disabled={isPending || !contact.name || (!contact.email && !contact.phone)}
+                                onClick={handleSubmit}
+                                className="w-full h-16 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl shadow-slate-900/10 hover:-translate-y-1 transition-all flex items-center justify-center gap-3 disabled:opacity-30 disabled:hover:translate-y-0"
                             >
-                                Back
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={submitting}
-                                className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-slate-800 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-wait"
-                            >
-                                {submitting ? (
-                                    <>Processing <Loader2 className="animate-spin" size={14} /></>
-                                ) : (
-                                    <>Confirm Booking <ArrowRight size={14} /></>
+                                {isPending ? <Loader2 className="animate-spin" size={20} /> : (
+                                    <>Confirm Appointment <ArrowRight size={18} /></>
                                 )}
                             </button>
+                            <p className="mt-6 text-center text-[10px] font-bold text-slate-300 uppercase tracking-widest">
+                                Secure Transaction Protected by CareOps Shield
+                            </p>
                         </div>
-                    </form>
+                    </div>
                 )}
             </div>
         </div>
-    );
+    )
 }
